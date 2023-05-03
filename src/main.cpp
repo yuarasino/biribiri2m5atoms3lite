@@ -4,27 +4,32 @@
 #include <ESP32Servo.h>
 
 
+// 定数
+
 const int D_DISPLAY_LED_PIN = 35;
-const int D_DISPLAY_LED_NUM = 1;
-const int D_SERVO_DRIVE_ANGLE = 30;
-const int D_POWER_SERVO_PIN = 1;
-const int D_POWER_SERVO_DELAY = 1200;
-const int D_LEVEL_SERVO_PIN = 2;
-const int D_LEVEL_SERVO_DELAY = 100;
+const int D_DISPLAY_LED_SIZE = 1;
+const int D_SHOCKER_DRIVE_ANGLE = 30;
+const int D_SHOCKER_POWER_PIN = 1;
+const int D_SHOCKER_POWER_DELAY = 1200;
+const int D_SHOCKER_LEVEL_PIN = 2;
+const int D_SHOCKER_LEVEL_DELAY = 100;
 
 
-CRGB gDisplayLed[D_DISPLAY_LED_NUM];
-volatile bool gServoIsDriven = false;
-QueueHandle_t gServoQueue = xQueueCreate(1, sizeof(int));
-Servo gPowerServo;
-Servo gLevelServo;
+// グローバル変数
+
+volatile bool gShockerIsDriving = false;
+
+CRGB gDisplayLed[D_DISPLAY_LED_SIZE];
+QueueHandle_t gShockerQueue = xQueueCreate(1, sizeof(int));
+Servo gShockerPower;
+Servo gShockerLevel;
 
 
-/** ディスプレイのタスク */
-void taskDisplay(void* pvParameters) {
+/** ディスプレイの更新 */
+void updateDisplay(void* pvParameters) {
   while (true) {
     CRGB color;
-    if (gServoIsDriven) { 
+    if (gShockerIsDriving) { 
       color = millis() % 400 > 200 ? CRGB::Red : CRGB::Black; 
     } else {
       color = CRGB::Blue;
@@ -35,50 +40,51 @@ void taskDisplay(void* pvParameters) {
 }
 
 
-/** 電源ボタンを押すサーボの駆動 */
-void drivePowerServo() {
-  gPowerServo.write(D_SERVO_DRIVE_ANGLE);
+/** 電源ONOFF用サーボを駆動 */
+void driveShockerPower() {
+  gShockerPower.write(D_SHOCKER_DRIVE_ANGLE);
   delay(100);
-  gPowerServo.write(0);
+  gShockerPower.write(0);
   delay(100);
-  // Serial.printf("[DEBUG] Power servo driven.\n");
+  // Serial.println("[DEBUG] Shocker power driven.");
 }
 
 
-/** 強さボタンを押すサーボの駆動 */
-void driveLevelServo() {
-  gLevelServo.write(D_SERVO_DRIVE_ANGLE);
+/** 強さUP用サーボを駆動 */
+void driveShockerLevel() {
+  gShockerLevel.write(D_SHOCKER_DRIVE_ANGLE);
   delay(100);
-  gLevelServo.write(0);
+  gShockerLevel.write(0);
   delay(100);
-  // Serial.printf("[DEBUG] Level servo driven.\n");
+  // Serial.println("[DEBUG] Shocker level driven.");
 }
 
 
-/** サーボのタスク */
-void taskServo(void* pvParameters) {
+/** サーボの更新 */
+void updateShocker(void* pvParameters) {
   while (true) {
     int parameter;
-    if (xQueueReceive(gServoQueue, &parameter, 0) == pdTRUE) {
+    if (xQueueReceive(gShockerQueue, &parameter, 0) == pdTRUE) {
       auto level = (parameter >> 8) & 0xff;
       auto duration = (parameter >> 0) & 0xff;
-      Serial.printf("[INFO] Servo parameter received. %d, %d\n", level, duration);
-      gServoIsDriven = true;
+      Serial.printf("[INFO] Shocker parameter received. %d, %d", level, duration);
+      Serial.println();
+      gShockerIsDriving = true;
       // 電源ON
-      drivePowerServo();
-      delay(D_POWER_SERVO_DELAY);
+      driveShockerPower();
+      delay(D_SHOCKER_POWER_DELAY);
       // 強さUP
       for (int i=0; i<level; i++) {
-        driveLevelServo();
-        delay(D_LEVEL_SERVO_DELAY);
+        driveShockerLevel();
+        delay(D_SHOCKER_LEVEL_DELAY);
       }
       // 指定時間分待機
       for (int i=0; i<duration*10; i++) {
-        if (gServoIsDriven) { delay(100); }
+        if (gShockerIsDriving) { delay(100); }
       }
       // 電源OFF
-      drivePowerServo();
-      gServoIsDriven = false;
+      driveShockerPower();
+      gShockerIsDriving = false;
       Serial.printf("[INFO] Servo task done.\n");
     }
     delay(100);
@@ -86,23 +92,23 @@ void taskServo(void* pvParameters) {
 }
 
 
-/** ディスプレイの初期設定 */
+/** ディスプレイの設定 */
 void beginDisplay() {
-  FastLED.addLeds<WS2812B, D_DISPLAY_LED_PIN, GRB>(gDisplayLed, D_DISPLAY_LED_NUM);
+  FastLED.addLeds<WS2812B, D_DISPLAY_LED_PIN, GRB>(gDisplayLed, D_DISPLAY_LED_SIZE);
   FastLED.setBrightness(64);
-  xTaskCreatePinnedToCore(taskDisplay, "taskDisplay", 4096, NULL, 1, NULL, ARDUINO_RUNNING_CORE);
-  // Serial.printf("[DEBUG] Display begun.\n");
+  xTaskCreatePinnedToCore(updateDisplay, "updateDisplay", 4096, NULL, 1, NULL, ARDUINO_RUNNING_CORE);
+  Serial.println("[INFO] Display begun.");
 }
 
 
-/** サーボの初期設定 */
-void beginServo() {
-  gPowerServo.attach(D_POWER_SERVO_PIN);
-  gPowerServo.write(0);
-  gLevelServo.attach(D_LEVEL_SERVO_PIN);
-  gLevelServo.write(0);
-  xTaskCreatePinnedToCore(taskServo, "taskServo", 4096, NULL, 1, NULL, ARDUINO_RUNNING_CORE);
-  // Serial.printf("[DEBUG] Servo begun.\n");
+/** サーボの設定 */
+void beginShocker() {
+  gShockerPower.attach(D_SHOCKER_POWER_PIN);
+  gShockerPower.write(0);
+  gShockerLevel.attach(D_SHOCKER_LEVEL_PIN);
+  gShockerLevel.write(0);
+  xTaskCreatePinnedToCore(updateShocker, "updateShocker", 4096, NULL, 1, NULL, ARDUINO_RUNNING_CORE);
+  Serial.println("[INFO] Shocker begun.");
 }
 
 
@@ -110,25 +116,24 @@ void beginServo() {
 void setup() {
   M5.begin();
   beginDisplay();
-  beginServo();
-  // Serial.printf("[DEBUG] M5 begun.\n");
+  beginShocker();
 }
 
 
 /** ボタンの状態更新 */
 void updateButton() {
   if (M5.BtnA.wasPressed()) {
-    if (gServoIsDriven) {
+    if (gShockerIsDriving) {
       // キャンセル
-      gServoIsDriven = false;
-      Serial.printf("[INFO] Button cancel pressed.\n");
+      gShockerIsDriving = false;
+      Serial.println("[INFO] Button cancel pressed.");
     } else {
       // サーボ試し運転
       auto level = 5;
       auto duration = 5;
-      int parameter = (level << 8) | duration;
-      xQueueSend(gServoQueue, &parameter, 0);
-      Serial.printf("[INFO] Button test pressed.\n");
+      auto parameter = (level << 8) | duration;
+      xQueueSend(gShockerQueue, &parameter, 0);
+      Serial.println("[INFO] Button test pressed.");
     }
   }
 }
@@ -137,13 +142,12 @@ void updateButton() {
 void updateSerial() {
   if (Serial.available()) {
     auto message = Serial.readString();
-    Serial.printf("[INFO] Serial message received. %s\n");
+    Serial.println(message);
     if (message.startsWith("-> ")) {
-      int parameter = message.substring(3).toInt();
-      xQueueSend(gServoQueue, &parameter, 0);
+      auto parameter = int(message.substring(3).toInt());
+      xQueueSend(gShockerQueue, &parameter, 0);
     }
   }
-  // Serial.printf("[DEBUG] Serial updated.\n");
 }
 
 
@@ -152,6 +156,5 @@ void loop() {
   M5.update();
   updateButton();
   updateSerial();
-  // Serial.printf("[DEBUG] M5 updated.\n");
   delay(100);
 }
