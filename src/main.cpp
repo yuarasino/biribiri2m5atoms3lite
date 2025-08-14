@@ -115,6 +115,7 @@ void beginShocker() {
 /** セットアップ */
 void setup() {
   M5.begin();
+  Serial.begin(115200);
   beginDisplay();
   beginShocker();
 }
